@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Disk Usage Analyzer</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --bg: #f3f4f6;
+            --card-bg: #ffffff;
+            --text-main: #1f2937;
+            --text-sec: #6b7280;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--bg);
+            color: var(--text-main);
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .header {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .breadcrumbs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            font-size: 1.1rem;
+            margin-bottom: 20px;
+            background: var(--card-bg);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .crumb {
+            cursor: pointer;
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .crumb:hover {
+            text-decoration: underline;
+        }
+
+        .crumb:last-child {
+            color: var(--text-sec);
+            cursor: default;
+            pointer-events: none;
+            text-decoration: none;
+        }
+
+        .separator {
+            color: var(--text-sec);
+        }
+
+        .folder-list {
+            background: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .folder-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            border-bottom: 1px solid #e5e7eb;
+            cursor: pointer;
+            transition: background 0.2s;
+            position: relative;
+        }
+
+        .folder-item:last-child {
+            border-bottom: none;
+        }
+
+        .folder-item:hover {
+            background-color: #f9fafb;
+        }
+
+        .folder-info {
+            flex: 1;
+            z-index: 2;
+        }
+
+        .folder-name {
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .folder-size {
+            font-size: 0.9rem;
+            color: var(--text-sec);
+        }
+
+        .size-bar {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            background-color: rgba(59, 130, 246, 0.1);
+            z-index: 1;
+            transition: width 0.5s ease;
+        }
+
+        .scan-controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        button:hover {
+            background-color: #2563eb;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            /* text-align: center; removed to support left align log */
+            padding: 20px;
+            color: var(--text-sec);
+        }
+
+        .error {
+            color: #ef4444;
+            padding: 15px;
+            background: #fee2e2;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app" class="container">
+        <div class="header">
+            <h1>Disk Usage Analyzer</h1>
+        </div>
+
+        <div class="scan-controls">
+            <input type="text" v-model="currentPath" @keyup.enter="scanPath(currentPath)">
+            <button @click="scanPath(currentPath)" :disabled="loading">Go / Scan</button>
+            <button @click="goUp" :disabled="currentPath === '/' || loading">Up</button>
+            <button @click="scanPath(currentPath, true)" :disabled="loading"
+                style="background-color: #10b981;">Refresh</button>
+            <button @click="openInFinder" :disabled="!currentPath" style="background-color: #6366f1;">Open in
+                Finder</button>
+        </div>
+
+        <div v-if="error" class="error">
+            {{ error }}
+        </div>
+
+        <div class="breadcrumbs">
+            <template v-for="(crumb, index) in breadcrumbs" :key="index">
+                <span class="crumb" @click="scanPath(crumb.path)">{{ crumb.name }}</span>
+                <span v-if="index < breadcrumbs.length - 1" class="separator">/</span>
+            </template>
+        </div>
+
+        <div class="loading" v-if="loading">
+            <div style="margin-bottom: 10px; font-weight: bold; text-align: center;">Scanning...</div>
+
+            <!-- Log View -->
+            <div
+                style="max-height: 200px; overflow-y: auto; background: #f9fafb; border: 1px solid #e5e7eb; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 0.85rem; color: #374151; display: flex; flex-direction: column-reverse;">
+                <div style="color: #2563eb; font-weight: bold; margin-top: 5px;">&gt; {{ scanProgress }}</div>
+                <div v-for="(log, i) in scanLogs" :key="i" style="color: #6b7280;">
+                    ✓ {{ log }}
+                </div>
+            </div>
+        </div>
+
+        <div v-if="!loading && currentData" class="folder-list">
+            <div class="folder-item header-item" style="background-color: #f3f4f6; cursor: default;">
+                <span style="font-weight: bold;">Total Size: {{ currentData.formattedTotalSize }}</span>
+            </div>
+            <div v-for="item in currentData.children" :key="item.path" class="folder-item" @click="scanPath(item.path)">
+                <div class="size-bar" :style="{ width: getPercentage(item.size) + '%' }"></div>
+                <div class="folder-info">
+                    <div class="folder-name">{{ item.name }}</div>
+                    <div class="folder-size">{{ item.formattedSize }} ({{ getPercentage(item.size) }}%)</div>
+                </div>
+                <div style="z-index: 2;">&gt;</div>
+            </div>
+
+            <div v-if="currentData.children.length === 0" style="padding: 20px; text-align: center; color: #6b7280;">
+                Empty directory or scan failed.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    currentPath: '/Applications/XAMPP/xamppfiles/htdocs',
+                    currentData: null,
+                    loading: false,
+                    error: null,
+                    scanProgress: '',
+                    scanLogs: [],
+                    eventSource: null
+                }
+            },
+            computed: {
+                breadcrumbs() {
+                    if (!this.currentPath) return [];
+                    const parts = this.currentPath.split('/').filter(p => p);
+                    const crumbs = [{ name: 'Root', path: '/' }];
+                    let current = '';
+                    parts.forEach(part => {
+                        current += '/' + part;
+                        crumbs.push({ name: part, path: current });
+                    });
+                    return crumbs;
+                }
+            },
+            mounted() {
+                // Check hash for initial path
+                if (window.location.hash) {
+                    const hashPath = decodeURIComponent(window.location.hash.slice(1));
+                    if (hashPath) {
+                        this.currentPath = hashPath;
+                    }
+                }
+                this.scanPath(this.currentPath);
+
+                // Handle back/forward buttons
+                window.addEventListener('hashchange', () => {
+                    const hashPath = decodeURIComponent(window.location.hash.slice(1));
+                    if (hashPath && hashPath !== this.currentPath) {
+                        this.scanPath(hashPath);
+                    }
+                });
+            },
+            methods: {
+                scanPath(path, force = false) {
+                    // Update Hash
+                    window.location.hash = encodeURIComponent(path);
+                    if (this.eventSource) {
+                        this.eventSource.close();
+                    }
+
+                    this.loading = true;
+                    this.error = null;
+                    this.scanProgress = 'Starting...';
+                    this.scanLogs = []; // Reset logs
+                    this.currentData = { children: [], totalSize: 0, formattedTotalSize: '...' };
+
+                    // Normalize path
+                    if (path.length > 1 && path.endsWith('/')) {
+                        path = path.slice(0, -1);
+                    }
+                    this.currentPath = path;
+
+                    let url = `http://localhost:3000/api/scan-stream?path=${encodeURIComponent(path)}`;
+                    if (force) {
+                        url += '&force=true';
+                    }
+                    this.eventSource = new EventSource(url);
+
+                    this.eventSource.addEventListener('item', (e) => {
+                        const item = JSON.parse(e.data);
+                        this.currentData.children.push(item);
+                        // Add to log
+                        this.scanLogs.unshift(`${item.name} (${item.formattedSize})`);
+                        if (this.scanLogs.length > 100) this.scanLogs.pop();
+                    });
+
+                    this.eventSource.addEventListener('progress', (e) => {
+                        const data = JSON.parse(e.data);
+                        let msg = data.message;
+                        if (msg.length > 80) msg = '...' + msg.slice(-80);
+                        this.scanProgress = msg;
+                    });
+
+                    this.eventSource.addEventListener('complete', (e) => {
+                        const finalData = JSON.parse(e.data);
+                        this.currentData = finalData;
+                        this.loading = false;
+                        this.eventSource.close();
+                        this.eventSource = null;
+                    });
+
+                    this.eventSource.onerror = (e) => {
+                        if (this.eventSource && this.eventSource.readyState !== EventSource.CLOSED) {
+                            //
+                        }
+                    };
+                },
+                getPercentage(size) {
+                    if (!this.currentData || !this.currentData.totalSize) return 0;
+                    return ((size / this.currentData.totalSize) * 100).toFixed(1);
+                },
+                goUp() {
+                    const parts = this.currentPath.split('/').filter(p => p);
+                    parts.pop();
+                    const newPath = '/' + parts.join('/');
+                    this.scanPath(newPath || '/');
+                },
+                async openInFinder() {
+                    if (!this.currentPath) return;
+                    try {
+                        await fetch(`http://localhost:3000/api/open?path=${encodeURIComponent(this.currentPath)}`);
+                    } catch (e) {
+                        console.error(e);
+                    }
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+
+</html>
