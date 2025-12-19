@@ -2,7 +2,7 @@
 
 ![Disk Analyzer Screenshot](screenshot.png)
 
-A lightweight, web-based tool designed to help you visualize and analyze disk usage on your Mac. It provides a convenient interface to explore your file system and identify what is taking up the most space.
+A lightweight, **localhost web-based tool** designed to help you visualize and analyze disk usage on your Mac. It provides a convenient interface to explore your file system and identify what is taking up the most space.
 
 **Note:** This is a **read-only** analysis tool. It does **not** have any functionality to delete or modify files. Its sole purpose is to help you *find* large files/folders so you can decide what to do with them manually.
 
