@@ -183,7 +183,7 @@
         <div class="scan-controls">
             <input type="text" v-model="currentPath" @keyup.enter="scanPath(currentPath)">
             <button @click="scanPath(currentPath)" :disabled="loading">Go / Scan</button>
-            <button @click="goUp" :disabled="currentPath === '/' || loading">Up</button>
+
             <button @click="scanPath(currentPath, true)" :disabled="loading"
                 style="background-color: #10b981;">Refresh</button>
             <button @click="openInFinder" :disabled="!currentPath" style="background-color: #6366f1;">Open in
@@ -338,12 +338,7 @@
                     if (!this.currentData || !this.currentData.totalSize) return 0;
                     return ((size / this.currentData.totalSize) * 100).toFixed(1);
                 },
-                goUp() {
-                    const parts = this.currentPath.split('/').filter(p => p);
-                    parts.pop();
-                    const newPath = '/' + parts.join('/');
-                    this.scanPath(newPath || '/');
-                },
+
                 async openInFinder() {
                     if (!this.currentPath) return;
                     try {
